@@ -71,19 +71,19 @@ const registerUser = async (req, res) => {
       to: newUser.email,
       subject: "Verify your email",
       text: `Please click on the following link: 
-            ${process.env.BASE_URL}/api/v1/users/verify/${token} 
+            ${process.env.BASE_URL}/verify/${token} 
             `,
       html: `
                     <div style="font-family: Arial, sans-serif; line-height:1.6;">
                         <h2>Welcome, ${newUser.name}!</h2>
                         <p>Please click on the link below to verify your email:</p>
-                        <a href="${process.env.BASE_URL}/api/v1/users/verify/${token}" 
+                        <a href="${process.env.BASE_URL}/verify/${token}" 
                         style="display:inline-block; padding:10px 20px; background:#4CAF50; 
                         color:#fff; text-decoration:none; border-radius:5px;">
                             Verify Email
                         </a>
                         <p>If the button doesn’t work, copy and paste this link into your browser:</p>
-                        <p>${process.env.BASE_URL}/api/v1/users/verify/${token}</p>
+                        <p>${process.env.BASE_URL}/verify/${token}</p>
                     </div>
                 `,
     };
@@ -220,6 +220,8 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         role: user.role,
+        email: user.email,
+        isVerified: user.isVerified,
       },
     });
   } catch (error) {
@@ -321,19 +323,19 @@ const forgotPassword = async (req, res) => {
       to: user.email,
       subject: "Password Reset Request",
       text: `Please click on the following link: 
-            ${process.env.BASE_URL}/api/v1/users/reset-password/${resetToken} 
+            ${process.env.BASE_URL}/reset-password/${resetToken} 
             `,
       html: `
                     <div style="font-family: Arial, sans-serif; line-height:1.6;">
                         <h2>Hello, ${user.name}!</h2>
                         <p>You have requested for password reset:</p>
-                        <a href="${process.env.BASE_URL}/api/v1/users/reset-password/${resetToken}" 
+                        <a href="${process.env.BASE_URL}/reset-password/${resetToken}" 
                         style="display:inline-block; padding:10px 20px; background:#4CAF50; 
                         color:#fff; text-decoration:none; border-radius:5px;">
                             Reset password
                         </a>
                         <p>If the button doesn’t work, copy and paste this link into your browser:</p>
-                        <p>${process.env.BASE_URL}/api/v1/users/reset-password/${resetToken}</p>
+                        <p>${process.env.BASE_URL}/reset-password/${resetToken}</p>
                     </div>
                 `,
     };
@@ -357,55 +359,52 @@ const forgotPassword = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   try {
-    
     // collect token from params
     const { token } = req.params;
     // password from req.body
     const { password } = req.body;
-    try {
-      // ab yeh user tab hi milega jab object mein pass kiye dono values honge toh
-      const user = await User.findOne({
-        resetPasswordToken: token,
-        resetPasswordExpires: { $gt: Date.now() }, // gt means greater than (time past mein nahi hona chahiye)
+
+    if (!token || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Token and password are required"
       });
-
-      if(!user){
-        return res.status(400).json({
-          success : false,
-          message: "User not found"
-        })
-      }
-
-      // set password in user
-
-      user.password = password
-      
-      // resetToken, resetExpiry ko reset kardo (matlab empty)  // reset karte time undefined ka use karo kyoki usse woh field database se gayab ho jayega, null ka use karoge toh woh field abhi bhi database mein rahega, we can also use unset operator (yeh DB level pe kaam mein aata hai), dono ke apne apne use cases hai
-
-      user.resetPasswordToken = undefined
-
-      user.resetPasswordExpires = undefined
-
-      // ab save kardo
-      await user.save()
-
-      return res.status(200).json({
-        success: true,
-        message: "Password reset successful"
-      })
-
-    } catch (error) {
-      return res.status(500).json({
-      success: false,
-      message: "Something went wrong"
-    })
     }
 
+    // find user with valid reset token that hasn't expired
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() }, // gt means greater than (time should not be in the past)
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    // set new password
+    user.password = password;
+    
+    // clear reset token and expiry
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    // save user
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successful"
+    });
+
   } catch (error) {
-    return res.status(400).json({
+    console.log("Reset password error:", error);
+    return res.status(500).json({
       success: false,
-      message: "Token not found or Invalid"
-    })
+      message: "Something went wrong during password reset"
+    });
   }
 };
 
